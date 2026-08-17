@@ -231,6 +231,13 @@
     $("tabToday").classList.remove("on");
     $("form").style.display = "none"; $("hist").style.display = ""; };
 
+  // No key in the address at all (someone found the page) — say so honestly
+  // rather than letting the fetch fail into "couldn't load".
+  if (!token || token === "checkin"){
+    $("sub").textContent = "This link isn't valid — ask Khalil for your own link.";
+    $("tabs").style.display = "none";
+    return;
+  }
   fetch(api("/state")).then(r => r.json()).then(j => {
     if (!j.ok){ $("sub").textContent = "This link isn't valid — ask Khalil for a fresh one."; return; }
     QS = j.questions;
