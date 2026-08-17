@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Daily Check-in — Salty Bay Flips</title>
+<style>
+  :root{
+    --bg:#0e1116; --card:#171b23; --line:rgba(255,255,255,.09);
+    --txt:#e8eaed; --dim:#9aa0a8; --acc:#3e9bff; --good:#39d98a; --bad:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--bg); color:var(--txt);
+    font:16px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+    padding-bottom:60px}
+  .wrap{max-width:640px; margin:0 auto; padding:18px 14px}
+  h1{font-size:20px; margin:6px 0 2px}
+  .sub{color:var(--dim); font-size:13.5px; margin-bottom:16px}
+  .tabs{display:flex; gap:8px; margin:14px 0 18px}
+  .tab{flex:1; text-align:center; padding:10px; border-radius:12px;
+    background:var(--card); border:1px solid var(--line); color:var(--dim);
+    font-weight:600; cursor:pointer; user-select:none}
+  .tab.on{color:var(--txt); border-color:var(--acc);
+    background:rgba(62,155,255,.12)}
+  .q{background:var(--card); border:1px solid var(--line); border-radius:14px;
+    padding:14px; margin-bottom:12px}
+  .q label{display:block; font-weight:600; font-size:15px; margin-bottom:8px}
+  .q .req{color:var(--bad); margin-left:3px}
+  input[type=text],input[type=number],textarea,select{
+    width:100%; background:#0c0f14; color:var(--txt);
+    border:1px solid var(--line); border-radius:10px; padding:11px 12px;
+    font:inherit}
+  textarea{min-height:84px; resize:vertical}
+  .yn{display:flex; gap:10px}
+  .yn button{flex:1; padding:11px; border-radius:10px; font:inherit;
+    font-weight:600; border:1px solid var(--line); background:#0c0f14;
+    color:var(--dim); cursor:pointer}
+  .yn button.on{border-color:var(--acc); color:var(--txt);
+    background:rgba(62,155,255,.14)}
+  .chk{display:flex; align-items:flex-start; gap:10px; cursor:pointer}
+  .chk input{width:22px; height:22px; margin-top:1px; flex:none}
+  .send{width:100%; padding:15px; border-radius:14px; border:0; font:inherit;
+    font-weight:700; font-size:17px; background:var(--acc); color:#fff;
+    cursor:pointer; margin-top:6px}
+  .send:disabled{opacity:.55}
+  .msg{padding:12px 14px; border-radius:12px; margin:12px 0; font-size:14.5px;
+    display:none}
+  .msg.err{display:block; background:rgba(255,107,107,.12); color:#ffb3b3}
+  .msg.ok{display:block; background:rgba(57,217,138,.12); color:#8fedbd}
+  .done{ text-align:center; padding:40px 10px}
+  .done .big{font-size:44px}
+  /* history */
+  .hday{background:var(--card); border:1px solid var(--line);
+    border-radius:14px; padding:13px 14px; margin-bottom:10px}
+  .hday .hd{display:flex; justify-content:space-between; align-items:center;
+    cursor:pointer}
+  .hday .hd b{font-size:15px}
+  .hday .body{display:none; margin-top:10px; border-top:1px solid var(--line);
+    padding-top:10px}
+  .hday.open .body{display:block}
+  .hrow{margin-bottom:9px}
+  .hrow .k{color:var(--dim); font-size:12.5px}
+  .hrow .v{font-size:14.5px; white-space:pre-wrap}
+  .search{margin-bottom:12px}
+  .foot{color:var(--dim); font-size:12px; text-align:center; margin-top:26px}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1 id="hello">Daily Check-in</h1>
+  <div class="sub" id="sub">Loading…</div>
+  <div class="tabs">
+    <div class="tab on" id="tabToday">Today</div>
+    <div class="tab" id="tabHist">My past entries</div>
+  </div>
+  <div id="msg" class="msg"></div>
+  <div id="form"></div>
+  <div id="hist" style="display:none"></div>
+  <div class="foot">Salty Bay Flips · answers go straight to the meeting board</div>
+</div>
+<script>
+(function(){
+  /* Two roads, one page (Khalil, 8/17/26 — he doesn't want the SBF team
+     bookmarking another LLC's domain):
+       1. served by Team HQ itself at /checkin/<token>  -> token from the path,
+          relative API calls;
+       2. hosted on the Salty Bay Flips GitHub org (Pages) with the token after
+          a #  -> token from the hash, API calls go to the tunnel. The hash is
+          never sent to any server, so the token stays out of logs. */
+  const API_BASE = "https://hq.kgequipmentservices.com";
+  const hashTok = (location.hash || "").replace(/^#/, "").trim();
+  const token = hashTok || location.pathname.split("/").filter(Boolean).pop();
+  const base = hashTok ? API_BASE : "";
+  const api = p => base + "/api/checkin/" + encodeURIComponent(token) + p;
+  const $ = id => document.getElementById(id);
+  let QS = [], answers = {};
+
+  function esc(s){ const d = document.createElement("div");
+    d.textContent = String(s == null ? "" : s); return d.innerHTML; }
+
+  function render(qs, filedToday){
+    const f = $("form"); f.innerHTML = "";
+    if (filedToday){
+      const n = document.createElement("div");
+      n.className = "msg ok"; n.style.display = "block";
+      n.textContent = "You already checked in today. Submitted entries can't be edited — if something needs correcting, submit a new one. Both stay on record; the newest one is what counts.";
+      f.appendChild(n);
+    }
+    qs.forEach(q => {
+      const card = document.createElement("div"); card.className = "q";
+      const lab = document.createElement("label");
+      lab.innerHTML = esc(q.label) + (q.req ? '<span class="req">*</span>' : "");
+      card.appendChild(lab);
+      let el;
+      if (q.kind === "long"){ el = document.createElement("textarea"); }
+      else if (q.kind === "number"){ el = document.createElement("input");
+        el.type = "number"; el.min = "0"; el.inputMode = "numeric"; }
+      else if (q.kind === "text"){ el = document.createElement("input");
+        el.type = "text"; }
+      else if (q.kind === "choice"){ el = document.createElement("select");
+        el.innerHTML = '<option value="">Choose…</option>' +
+          q.options.map(o => `<option>${esc(o)}</option>`).join(""); }
+      else if (q.kind === "yesno"){
+        el = document.createElement("div"); el.className = "yn";
+        ["Yes","No"].forEach(v => {
+          const b = document.createElement("button"); b.type = "button";
+          b.textContent = v;
+          b.onclick = () => { answers[q.id] = v;
+            el.querySelectorAll("button").forEach(x => x.classList.remove("on"));
+            b.classList.add("on"); };
+          el.appendChild(b); });
+      }
+      else if (q.kind === "check"){
+        el = document.createElement("label"); el.className = "chk";
+        const c = document.createElement("input"); c.type = "checkbox";
+        c.onchange = () => answers[q.id] = c.checked;
+        const s = document.createElement("span"); s.textContent = "Yes — confirmed";
+        el.appendChild(c); el.appendChild(s);
+      }
+      if (el.tagName === "TEXTAREA" || el.tagName === "INPUT" || el.tagName === "SELECT"){
+        el.oninput = el.onchange = () => answers[q.id] = el.value;
+      }
+      card.appendChild(el);
+      f.appendChild(card);
+    });
+    const b = document.createElement("button"); b.className = "send";
+    b.textContent = "Submit today's check-in";
+    b.onclick = async () => {
+      b.disabled = true; b.textContent = "Sending…";
+      try{
+        const r = await fetch(api("/submit"), {method:"POST",
+          headers:{"Content-Type":"application/json"},
+          body: JSON.stringify({answers})});
+        const j = await r.json();
+        if (j.ok){
+          $("form").innerHTML = '<div class="done"><div class="big">✅</div>' +
+            "<h2>Got it — you're done for today.</h2>" +
+            '<div class="sub">Your entry is on the meeting board. See you tomorrow.</div></div>';
+          $("msg").className = "msg";
+        } else {
+          const m = $("msg"); m.className = "msg err";
+          m.textContent = j.error || "Something didn't save — try again.";
+          b.disabled = false; b.textContent = "Submit today's check-in";
+          window.scrollTo({top:0, behavior:"smooth"});
+        }
+      }catch(e){
+        const m = $("msg"); m.className = "msg err";
+        m.textContent = "Couldn't reach the server — check your internet and try again.";
+        b.disabled = false; b.textContent = "Submit today's check-in";
+      }
+    };
+    f.appendChild(b);
+  }
+
+  function renderHist(days){
+    const h = $("hist"); h.innerHTML = "";
+    const s = document.createElement("input");
+    s.type = "text"; s.placeholder = "Filter by date (e.g. 2026-08) or a word…";
+    s.className = "search"; h.appendChild(s);
+    const list = document.createElement("div"); h.appendChild(list);
+    function draw(){
+      const q = (s.value || "").toLowerCase();
+      list.innerHTML = "";
+      days.filter(d => !q || JSON.stringify(d).toLowerCase().includes(q))
+        .forEach(d => {
+          const el = document.createElement("div"); el.className = "hday";
+          if (d.current === false) el.style.opacity = ".55";
+          const hd = document.createElement("div"); hd.className = "hd";
+          const tag = d.current === false
+            ? ' <span style="color:var(--dim);font-size:12px">v' + esc(d.version) + " — superseded</span>"
+            : (d.version > 1 ? ' <span style="color:var(--good);font-size:12px">v' + esc(d.version) + " — current</span>" : "")
+              + (d.legacy ? ' <span style="color:var(--dim);font-size:12px">from the old form</span>' : "");
+          hd.innerHTML = "<b>" + esc(d.date) + "</b>" + tag + "<span style='margin-left:auto'>▾</span>";
+          hd.onclick = () => el.classList.toggle("open");
+          const body = document.createElement("div"); body.className = "body";
+          const a = d.answers || {};
+          const known = new Set();
+          QS.forEach(qq => {
+            known.add(qq.id);
+            const v = a[qq.id];
+            if (v === null || v === "" || v === undefined) return;
+            const row = document.createElement("div"); row.className = "hrow";
+            row.innerHTML = '<div class="k">' + esc(qq.label) + "</div>" +
+              '<div class="v">' + esc(v === true ? "Yes" : v) + "</div>";
+            body.appendChild(row);
+          });
+          // Backfilled entries from the old Google Form can carry questions
+          // that no longer exist — show them too, nothing hidden.
+          Object.keys(a).forEach(k => {
+            if (known.has(k)) return;
+            const v = a[k];
+            if (v === null || v === "" || v === undefined) return;
+            const row = document.createElement("div"); row.className = "hrow";
+            row.innerHTML = '<div class="k">' + esc(k.replace(/_/g, " ")) + "</div>" +
+              '<div class="v">' + esc(v === true ? "Yes" : v) + "</div>";
+            body.appendChild(row);
+          });
+          el.appendChild(hd); el.appendChild(body); list.appendChild(el);
+        });
+      if (!list.children.length)
+        list.innerHTML = '<div class="sub">Nothing here yet.</div>';
+    }
+    s.oninput = draw; draw();
+  }
+
+  $("tabToday").onclick = () => { $("tabToday").classList.add("on");
+    $("tabHist").classList.remove("on");
+    $("form").style.display = ""; $("hist").style.display = "none"; };
+  $("tabHist").onclick = () => { $("tabHist").classList.add("on");
+    $("tabToday").classList.remove("on");
+    $("form").style.display = "none"; $("hist").style.display = ""; };
+
+  fetch(api("/state")).then(r => r.json()).then(j => {
+    if (!j.ok){ $("sub").textContent = "This link isn't valid — ask Khalil for a fresh one."; return; }
+    QS = j.questions;
+    $("hello").textContent = "Daily Check-in — " + j.name;
+    $("sub").textContent = j.role + " · fill this out before you clock out";
+    render(j.questions, j.filed_today);
+    renderHist(j.history || []);
+  }).catch(() => { $("sub").textContent = "Couldn't load — refresh the page."; });
+})();
+</script>
+</body>
+</html>
