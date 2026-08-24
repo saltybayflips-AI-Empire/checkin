@@ -376,9 +376,13 @@
       h = '<div class="sumnote">Once you have filed a few days, this is where '
         + "your totals and your week-over-week trend will show up.</div>";
     } else {
-      h += '<div class="sumnote">Weeks run Monday to Sunday. These are the same '
-         + "numbers shown on the team board, so what you see here is what gets "
-         + "discussed in the meeting. Tap <b>My past entries</b> for any single day.</div>";
+      /* The week here has to be the week the MEETING uses, or this line is
+         a lie on any Monday or Tuesday - which is exactly what it was on the
+         day this shipped. Wed-Tue, same as the team board. */
+      h += '<div class="sumnote">Your week runs <b>Wednesday to Tuesday</b>, '
+         + "the same week the Wednesday meeting uses - so what you see here is "
+         + "what gets discussed in the room. Tap <b>My past entries</b> for any "
+         + "single day.</div>";
     }
     el.innerHTML = h;
   }
