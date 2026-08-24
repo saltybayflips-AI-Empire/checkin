@@ -63,6 +63,24 @@
   .hrow .k{color:var(--dim); font-size:12.5px}
   .hrow .v{font-size:14.5px; white-space:pre-wrap}
   .search{margin-bottom:12px}
+  /* summary tab (ask abd99a1) - built to be read on a phone, one row per
+     number, never a wide table that forces sideways scrolling */
+  .sumsec{margin:0 0 18px}
+  .sumsec h2{font-size:13px; letter-spacing:.6px; text-transform:uppercase;
+             color:var(--dim); margin:0 0 9px; font-weight:700}
+  .srow{display:flex; align-items:baseline; gap:10px; padding:9px 0;
+        border-bottom:1px solid var(--line)}
+  .srow:last-child{border-bottom:none}
+  .srow .lab{flex:1; font-size:14.5px; min-width:0}
+  .srow .now{font-size:19px; font-weight:700; font-variant-numeric:tabular-nums}
+  .srow .cmp{font-size:12.5px; color:var(--dim); white-space:nowrap;
+             font-variant-numeric:tabular-nums}
+  .up{color:var(--good,#4ade80)} .down{color:#f6a13c} .flat{color:var(--dim)}
+  .pill{display:inline-block; font-size:12px; padding:2px 9px; border-radius:999px;
+        border:1px solid var(--line); color:var(--dim)}
+  .pill.hit{color:var(--good,#4ade80); border-color:var(--good,#4ade80)}
+  .pill.miss{color:#f6a13c; border-color:#f6a13c}
+  .sumnote{font-size:12.5px; color:var(--dim); line-height:1.6; margin:10px 0 0}
   .foot{color:var(--dim); font-size:12px; text-align:center; margin-top:26px}
 </style>
 </head>
@@ -72,10 +90,12 @@
   <div class="sub" id="sub">Loading…</div>
   <div class="tabs">
     <div class="tab on" id="tabToday">Today</div>
+    <div class="tab" id="tabSum">My numbers</div>
     <div class="tab" id="tabHist">My past entries</div>
   </div>
   <div id="msg" class="msg"></div>
   <div id="form"></div>
+  <div id="sum" style="display:none"></div>
   <div id="hist" style="display:none"></div>
   <div class="foot">Salty Bay Flips · answers go straight to the meeting board</div>
 </div>
@@ -95,6 +115,19 @@
   const api = p => base + "/api/checkin/" + encodeURIComponent(token) + p;
   const $ = id => document.getElementById(id);
   let QS = [], answers = {};
+
+
+  /* Same reason as the history page (ask a88f1ca): a DataSift link the team
+     pastes must be tappable in their own recap too, so they can see straight
+     away that it pasted correctly instead of finding out at the meeting.
+     escape FIRST, then linkify - never the other way round. */
+  function linkify(v){
+    return esc(v).replace(/https?:\/\/[^\s<"]+/g, function(u){
+      var nice = /reisift\.io/i.test(u) ? "open in DataSift \u2197" : u;
+      return '<a href="' + u + '" target="_blank" rel="noopener" '
+           + 'style="color:#8ab4f8">' + nice + '</a>';
+    });
+  }
 
   function esc(s){ const d = document.createElement("div");
     d.textContent = String(s == null ? "" : s); return d.innerHTML; }
@@ -202,7 +235,7 @@
             if (v === null || v === "" || v === undefined) return;
             const row = document.createElement("div"); row.className = "hrow";
             row.innerHTML = '<div class="k">' + esc(qq.label) + "</div>" +
-              '<div class="v">' + esc(v === true ? "Yes" : v) + "</div>";
+              '<div class="v">' + linkify(v === true ? "Yes" : v) + "</div>";
             body.appendChild(row);
           });
           // Backfilled entries from the old Google Form can carry questions
@@ -213,7 +246,7 @@
             if (v === null || v === "" || v === undefined) return;
             const row = document.createElement("div"); row.className = "hrow";
             row.innerHTML = '<div class="k">' + esc(k.replace(/_/g, " ")) + "</div>" +
-              '<div class="v">' + esc(v === true ? "Yes" : v) + "</div>";
+              '<div class="v">' + linkify(v === true ? "Yes" : v) + "</div>";
             body.appendChild(row);
           });
           el.appendChild(hd); el.appendChild(body); list.appendChild(el);
@@ -224,12 +257,143 @@
     s.oninput = draw; draw();
   }
 
-  $("tabToday").onclick = () => { $("tabToday").classList.add("on");
-    $("tabHist").classList.remove("on");
-    $("form").style.display = ""; $("hist").style.display = "none"; };
-  $("tabHist").onclick = () => { $("tabHist").classList.add("on");
-    $("tabToday").classList.remove("on");
-    $("form").style.display = "none"; $("hist").style.display = ""; };
+  /* ── MY NUMBERS (ask abd99a1) ───────────────────────────────────────
+     Khalil, 21 Aug 2026: "give them a certain view that they can view that
+     data in a summary format, and make it easy to navigate and user-friendly."
+
+     Before this the only view of their own work was "My past entries" - every
+     day as a collapsible row. To know how a week went, Red had to open five
+     days and add them up himself. That is an archive, not a summary.
+
+     THREE RULES THIS FOLLOWS:
+       1. It reads the SAME computed numbers the meeting board uses, so what
+          Red sees here is what Khalil reads out in the room. It does no maths
+          of its own beyond the week-over-week difference.
+       2. It works WITHOUT targets. Red currently has none configured while
+          Reggie does; a view that only worked with targets would be blank for
+          the person who asked for it. Week-vs-week always has something to say.
+       3. Phone first - one number per row, no wide tables, no sideways scroll.
+  */
+  function nice(id){
+    var q = (QS || []).find(function(x){ return x.id === id; });
+    if (!q) return String(id).replace(/_/g, " ");
+    /* the form labels end in "today" ("Dials made today"); in a weekly
+       summary that word is wrong, so it comes off. */
+    return String(q.label).replace(/\s+today\b/i, "");
+  }
+
+  function renderSum(sum, history){
+    var el = $("sum"); el.innerHTML = "";
+    if (!sum){
+      el.innerHTML = '<div class="sumnote">Your numbers aren\'t available right '
+        + 'now. Your answers are still saved - this is only the summary view.</div>';
+      return;
+    }
+    var wk = sum.weekly || [];
+    var cur = wk[0] || {}, prev = wk[1] || {};
+    var h = "";
+
+    /* ── this week vs last week ── */
+    var keys = Object.keys(cur).filter(function(k){ return k !== "week"; });
+    if (keys.length){
+      h += '<div class="sumsec"><h2>This week so far</h2>';
+      keys.forEach(function(k){
+        var a = cur[k] || 0, b = prev[k];
+        var cmp = "", cls = "flat";
+        if (b === undefined || b === null){
+          cmp = "no last week to compare";
+        } else if (a > b){ cls = "up";   cmp = "\u25b2 " + (a - b) + " more than last week (" + b + ")"; }
+        else if (a < b){   cls = "down"; cmp = "\u25bc " + (b - a) + " fewer than last week (" + b + ")"; }
+        else {                            cmp = "same as last week (" + b + ")"; }
+        h += '<div class="srow"><div class="lab">' + esc(nice(k)) + "</div>"
+           + '<div class="now">' + a + "</div>"
+           + '<div class="cmp ' + cls + '">' + esc(cmp) + "</div></div>";
+      });
+      h += "</div>";
+    }
+
+    /* ── today vs the daily target (only if they have targets) ── */
+    var day = (sum.today_vs_target || []).filter(function(t){ return t.target; });
+    if (day.length){
+      h += '<div class="sumsec"><h2>Today against your daily target</h2>';
+      day.forEach(function(t){
+        var got = (t.value === null || t.value === undefined) ? 0 : t.value;
+        h += '<div class="srow"><div class="lab">' + esc(nice(t.metric)) + "</div>"
+           + '<div class="now">' + got + "</div>"
+           + '<span class="pill ' + (t.met ? "hit" : "miss") + '">'
+           + (t.met ? "target " + t.target + " \u2713" : got + " of " + t.target)
+           + "</span></div>";
+      });
+      if (day.every(function(t){ return t.value === null || t.value === undefined; })){
+        h += '<div class="sumnote">Nothing logged for today yet - these fill in '
+           + "the moment you file today's check-in.</div>";
+      }
+      h += "</div>";
+    }
+
+    /* ── 45-day milestones (Reggie has these; Red does not) ── */
+    var ms = sum.milestones_45d || {};
+    if (Object.keys(ms).length){
+      h += '<div class="sumsec"><h2>Last 45 days</h2>';
+      Object.keys(ms).forEach(function(k){
+        var m = ms[k];
+        h += '<div class="srow"><div class="lab">' + esc(nice(k)) + "</div>"
+           + '<div class="now">' + m.value + "</div>"
+           + '<span class="pill ' + (m.met ? "hit" : "miss") + '">goal '
+           + m.target + "</span></div>";
+      });
+      h += "</div>";
+    }
+
+    /* ── how consistently they are filing ── */
+    var days = (history || []).length;
+    if (days){
+      /* ⛔ COUNT CALENDAR DAYS, NOT ENTRIES. The first cut of this said
+         "filed in the last 14 entries" and counted history.slice(-14).length -
+         which is 14 every single time once they have 14 entries. A number that
+         can only ever report one value tells them nothing about whether they
+         are keeping up. Fourteen real days is the question worth answering. */
+      var cut = new Date(Date.now() - 14 * 864e5).toISOString().slice(0, 10);
+      var recent = (history || []).filter(function(d){
+        return (d.date || "") >= cut;
+      }).length;
+      var last = (history || []).map(function(d){ return d.date || ""; })
+                                .sort().slice(-1)[0] || "";
+      h += '<div class="sumsec"><h2>Your check-ins</h2>'
+         + '<div class="srow"><div class="lab">Days filed, all time</div>'
+         + '<div class="now">' + days + "</div></div>"
+         + '<div class="srow"><div class="lab">Filed in the last 14 days</div>'
+         + '<div class="now">' + recent + "</div>"
+         + '<div class="cmp ' + (recent >= 10 ? "up" : "down") + '">'
+         + (recent >= 10 ? "keeping up" : "10 of 14 is the working-day pace")
+         + "</div></div>"
+         + (last ? '<div class="srow"><div class="lab">Most recent</div>'
+                 + '<div class="cmp">' + esc(last) + "</div></div>" : "")
+         + "</div>";
+    }
+
+    if (!h){
+      h = '<div class="sumnote">Once you have filed a few days, this is where '
+        + "your totals and your week-over-week trend will show up.</div>";
+    } else {
+      h += '<div class="sumnote">Weeks run Monday to Sunday. These are the same '
+         + "numbers shown on the team board, so what you see here is what gets "
+         + "discussed in the meeting. Tap <b>My past entries</b> for any single day.</div>";
+    }
+    el.innerHTML = h;
+  }
+
+  function showTab(which){
+    ["Today", "Sum", "Hist"].forEach(function(t){
+      $("tab" + t).classList.toggle("on", t === which);
+    });
+    $("form").style.display = which === "Today" ? "" : "none";
+    $("sum").style.display  = which === "Sum"   ? "" : "none";
+    $("hist").style.display = which === "Hist"  ? "" : "none";
+  }
+  $("tabToday").onclick = () => showTab("Today");
+  $("tabSum").onclick   = () => showTab("Sum");
+  $("tabHist").onclick  = () => showTab("Hist");
 
   // No key in the address at all (someone found the page) — say so honestly
   // rather than letting the fetch fail into "couldn't load".
@@ -245,6 +409,7 @@
     $("sub").textContent = j.role + " · fill this out before you clock out";
     render(j.questions, j.filed_today);
     renderHist(j.history || []);
+    renderSum(j.summary, j.history || []);
   }).catch(() => { $("sub").textContent = "Couldn't load — refresh the page."; });
 })();
 </script>
